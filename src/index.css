@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pattern: radial-gradient(ellipse at 20% 10%, rgba(255,255,255,0.8), transparent 60%),
+             radial-gradient(ellipse at 80% 0%, rgba(255,255,255,0.7), transparent 55%),
+             radial-gradient(ellipse at 50% 100%, rgba(255,255,255,0.6), transparent 60%);
+}
+
+html { scroll-behavior: smooth; }
+body { background-image: var(--pattern); }
+
+.section { @apply py-20 md:py-28; transition: background 1s ease, color 0.6s ease; }
+.container-max { @apply max-w-6xl mx-auto px-4 md:px-6; }
+
+.card { @apply rounded-3xl bg-white/80 backdrop-blur-6 shadow-soft border border-white/50; }
+.pill { @apply inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-1 text-xs font-medium shadow-sm; }
+
+.btn { @apply inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold transition-all; }
+.btn-primary { @apply bg-gradient-to-tr from-petal-400 to-sage-300 text-stone-800 hover:shadow-glow active:scale-95; }
+.btn-outline { @apply border border-stone-300 text-stone-700 bg-white/60 hover:bg-white active:scale-95; }
+
+.input { @apply w-full rounded-2xl border border-stone-300 px-4 py-3 bg-white/80 outline-none focus:ring-4 focus:ring-petal-200; }
+.label { @apply block text-sm font-medium text-stone-700 mb-1; }
+
+.nav-link { @apply text-sm font-medium text-stone-700 hover:text-petal-700 transition-colors; }
+.nav-link.active-link { @apply text-petal-800; }
+
+.frame { @apply rounded-[2rem] border border-white/60 shadow-soft overflow-hidden bg-white; }
+
+.soft-divider { background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(214, 207, 224, 0.35) 100%); height: 1px; width: 100%; }
+.badge-soft { @apply text-[11px] tracking-wide text-stone-600; }
+
+/* ----------------------------- */
+/* Crochet-themed helpers        */
+/* ----------------------------- */
+
+/* stitchy divider line */
+.stitch-divider {
+  height: 2px;
+  width: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(158, 140, 181, 0.45) 0 10px,
+    rgba(158, 140, 181, 0.08) 10px 20px
+  );
+  border-radius: 2px;
+}
+
+/* scalloped mask for images */
+.scallop-mask {
+  --r: 20px;
+  -webkit-mask:
+    radial-gradient(var(--r) at var(--r) var(--r), #000 99%, transparent 101%)
+      -10px -10px/ calc(var(--r)*2) calc(var(--r)*2) repeat,
+    linear-gradient(#000,#000);
+          mask:
+    radial-gradient(var(--r) at var(--r) var(--r), #000 99%, transparent 101%)
+      -10px -10px/ calc(var(--r)*2) calc(var(--r)*2) repeat,
+    linear-gradient(#000,#000);
+}
+
+/* Luxe crochet frame: soft bevel + stitched tape edge */
+.crochet-frame {
+  --edge: #e4daee;            /* stitch tape */
+  --bevelTop: #ffffff;
+  --bevelBottom: #eee6f7;
+  --shadow: 0 14px 30px rgba(0,0,0,.10);
+
+  padding: 12px;
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+
+  background:
+    linear-gradient(145deg, var(--bevelTop), var(--bevelBottom)) padding-box,
+    repeating-linear-gradient(90deg,
+      var(--edge) 0 12px, transparent 12px 22px) border-box;
+
+  border: 10px solid transparent;
+  position: relative;
+}
+
+.crochet-frame::after {
+  content: "";
+  position: absolute; inset: 6px;
+  border-radius: 18px;
+  pointer-events: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -2px 6px rgba(0,0,0,.06);
+}
+
+/* ----------------------------- */
+/* Interactive extras            */
+/* ----------------------------- */
+
+/* reveal animation on scroll */
+.reveal-init { opacity: 0; transform: translateY(6px); }
+.reveal-in { opacity: 1; transform: translateY(0); transition: all .7s ease; }
+
+/* badges with sparkle */
+.interactive-badge { position: relative; overflow: hidden; }
+.interactive-badge .sparkle {
+  opacity: 0;
+  transform: scale(.6);
+  transition: opacity .25s, transform .25s;
+}
+.interactive-badge:hover .sparkle {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Handmade with love: give it priority look */
+.badge-primary {
+  border-width: 1.5px;
+  border-color: theme(colors.petal.300 / 0.8);
+  background: linear-gradient(135deg, #fff, rgba(255,255,255,.85));
+  box-shadow: 0 8px 18px rgba(203, 164, 219, .18);
+}
+.badge-primary:hover {
+  box-shadow: 0 10px 22px rgba(203, 164, 219, .28);
+}
+
+/* yarn swatches */
+.yarn-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  display: inline-block;
+  cursor: pointer;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
+  transition: transform .2s ease;
+}
+.yarn-dot:hover {
+  transform: scale(1.1);
+}
