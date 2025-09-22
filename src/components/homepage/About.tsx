@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Blob } from "../Decor";
 import { Heart, Gift, Package, Sparkles } from "lucide-react";
+import kelseyPortrait from "../../assets/kelsey_portrait.jpg";
+
 
 /* ------------------ hooks ------------------ */
 function useInView(threshold = 0.25) {
@@ -119,11 +121,11 @@ export default function About() {
             <div className="crochet-frame rounded-[2rem]">
               <div className="frame overflow-hidden scallop-mask rounded-[2rem]">
                 <img
-                  src="/src/assets/kelsey_portrait.jpg"
-                  alt="Kelsey crocheting a pastel piece"
-                  className="w-full h-[520px] md:h-[620px] object-cover"
-                  draggable={false}
-                />
+  src={kelseyPortrait}
+  alt="Kelsey crocheting a pastel piece"
+  className="w-full h-[520px] md:h-[620px] object-cover"
+  draggable={false}
+/>
               </div>
             </div>
           </div>

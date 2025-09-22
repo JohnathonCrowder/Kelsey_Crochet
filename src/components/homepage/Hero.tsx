@@ -1,5 +1,7 @@
 import { ChevronRight, Sparkles } from "lucide-react";
 import { Blob, WaveDivider } from "../Decor";
+import heroImage from "../../assets/hero_image.jpg";
+
 
 export default function Hero() {
   return (
@@ -53,10 +55,10 @@ export default function Hero() {
         <div className="relative">
           <div className="frame">
             <img
-              src="/src/assets/hero_image.jpg"
-              alt="Soft crochet textiles"
-              className="w-full h-[420px] md:h-[520px] object-cover"
-            />
+  src={heroImage}
+  alt="Soft crochet textiles"
+  className="w-full h-[420px] md:h-[520px] object-cover"
+/>
           </div>
 
           <div className="absolute -bottom-6 -left-6">
