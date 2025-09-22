@@ -119,7 +119,7 @@ export default function About() {
             <div className="crochet-frame rounded-[2rem]">
               <div className="frame overflow-hidden scallop-mask rounded-[2rem]">
                 <img
-                  src="/src/assets/kelsey_portrait.png"
+                  src="/src/assets/kelsey_portrait.jpg"
                   alt="Kelsey crocheting a pastel piece"
                   className="w-full h-[520px] md:h-[620px] object-cover"
                   draggable={false}

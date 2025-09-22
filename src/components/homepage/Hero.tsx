@@ -53,7 +53,7 @@ export default function Hero() {
         <div className="relative">
           <div className="frame">
             <img
-              src="/src/assets/hero_image.png"
+              src="/src/assets/hero_image.jpg"
               alt="Soft crochet textiles"
               className="w-full h-[420px] md:h-[520px] object-cover"
             />
