@@ -336,6 +336,41 @@ function Badge({ icon, text }: { icon: React.ReactNode; text: string }) {
   );
 }
 
+function TabButton({
+  active,
+  onClick,
+  children,
+  id,
+  panelId,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  id?: string;        // optional: for aria linking
+  panelId?: string;   // optional: for aria linking
+}) {
+  return (
+    <button
+      type="button"
+      id={id}
+      role="tab"
+      aria-selected={active}
+      aria-controls={panelId}
+      onClick={onClick}
+      className={[
+        "px-3.5 py-2 rounded-xl text-sm font-medium border transition",
+        "focus:outline-none focus:ring-2 focus:ring-petal-300",
+        active
+          ? "bg-petal-600 text-white border-petal-600 shadow-soft"
+          : "bg-white/80 text-stone-800 border-white/60 hover:bg-white"
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+
 function SoftPill({ children }: { children: React.ReactNode }) {
   return (
     <span className="px-3 py-1 rounded-full text-xs font-medium border border-white/60 bg-white/70 shadow-soft">
