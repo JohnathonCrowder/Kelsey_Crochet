@@ -64,7 +64,7 @@ export default function CareGuide() {
   const handleShare = async () => {
     const url = window.location.href;
     const shareData = {
-      title: "Kelsey's Crochet — Care Guide",
+      title: "Kelsey's Crochet Corner — Care Guide",
       text: "Handmade crochet care tips for plushies, blankets, and wearables.",
       url,
     };

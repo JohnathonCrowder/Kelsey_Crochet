@@ -1,4 +1,4 @@
-# Kelsey's Crochet (Pastel Edition) — React + Tailwind + Vite (TS)
+# Kelsey's Crochet Corner (Pastel Edition) — React + Tailwind + Vite (TS)
 
 A high-end pastel, soft, and cozy one-page showcase & contact site.
 Fully frontend (no server).

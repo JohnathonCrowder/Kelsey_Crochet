@@ -60,7 +60,7 @@ export default function ContactPage() {
   const quickNoteHref = useMemo(() => {
     const subject = encodeURIComponent("Custom Crochet Inquiry");
     const body = encodeURIComponent(
-      `Name: ${qnName}\nEmail: ${qnEmail}\n\nMessage:\n${qnMsg}\n\n(From Kelsey's Crochet contact page)`
+      `Name: ${qnName}\nEmail: ${qnEmail}\n\nMessage:\n${qnMsg}\n\n(From Kelsey's Crochet Corner contact page)`
     );
     return `mailto:${EMAIL}?subject=${subject}&body=${body}`;
   }, [qnName, qnEmail, qnMsg]);
