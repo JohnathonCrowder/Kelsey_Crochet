@@ -47,7 +47,7 @@ export default function Header() {
       <div className="container-max flex items-center justify-between h-16">
         {/* Logo / Brand */}
         <a href="/" className="font-display text-xl font-semibold tracking-tight">
-          <span className="text-petal-800">Kelsey’s</span> Crochet
+          <span className="text-petal-800">Kelsey’s</span> Crochet Corner
         </a>
 
         {/* Desktop Nav */}
