@@ -6,6 +6,7 @@ import CareGuide from "./pages/CareGuide"; // care guide page
 import About from "./pages/About"; // new about page
 import "./index.css";
 import ContactPage from "./pages/Contact";
+import GalleryPage from "./pages/Gallery";
 
 
 createRoot(document.getElementById("root")!).render(
@@ -23,6 +24,9 @@ createRoot(document.getElementById("root")!).render(
 
         {/* Contact Page */}
         <Route path="/contact" element={<ContactPage />} />
+
+        {/* Gallery Page */}
+        <Route path="/gallery" element={<GalleryPage />} />
 
       </Routes>
     </BrowserRouter>
