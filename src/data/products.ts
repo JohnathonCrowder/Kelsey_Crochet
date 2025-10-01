@@ -1,163 +1,120 @@
-// src/data/products.ts
-
-
 /**
- * 🧵 Kelsey’s Crochet — Product Catalog
+ * products.ts — Central product data for the shop.
  *
- * This file controls the products shown in the shop.
- * Products are grouped into "premade" (ready-to-ship) and "preorder" (made-to-order).
- * Stripe Payment Links handle all checkout.
+ * Each product supports both PREMADE (one-of-a-kind / ready to ship)
+ * and PREORDER (made to order). Fields like `soldOut`, `unique`, `badges`,
+ * and `variants` are optional so your Shop page can render gracefully
+ * even when you don’t use them.
  *
- * -------------------------------
- * 🔑 Product Schema
- * -------------------------------
- *
- * id          → Unique identifier (string, kebab-case recommended)
- * title       → Display name of the product
- * priceLabel  → Display price (string, e.g. "$19.99" or "from $120")
- * image       → Path to product image (recommend serving from /public/shop/)
- * description → (optional) Short description shown on product card
- * leadTime    → (optional) Timeline for preorder items (e.g. "Made to order • 5–7 days")
- * shipNote    → (optional) Timeline for premade items (e.g. "Ships in 1–2 days")
- * badges      → (optional) Array of strings to highlight (e.g. ["Unique", "Giftable"])
- * active      → Boolean — set false to hide product
- *
- * kind        → "premade" | "preorder"
- * unique      → (optional) Boolean — if this is a one-of-a-kind piece
- * soldOut     → (optional) Boolean — set true after it sells (keeps it visible with a “Sold” badge)
- *
- * paymentLink → (optional) Stripe Payment Link URL (single product)
- * variants    → (optional) Array of { name, paymentLink, buttonText? }
- * buttonText  → (optional) Override the button text (default is "Buy Now" for premade, "Preorder" for preorder)
- *
- * -------------------------------
- * 💡 Usage Tips
- * -------------------------------
- *
- * • Premade items:
- *   - Use kind: "premade"
- *   - Add shipNote (e.g. "Ships in 1–2 days")
- *   - If unique, set unique: true and toggle soldOut: true after it sells
- *
- * • Preorder items:
- *   - Use kind: "preorder"
- *   - Add leadTime (e.g. "Made to order • 5–7 days")
- *   - Stripe Payment Links can handle multiple orders automatically
- *
- * • Variants:
- *   - Use when sizes/colors are different Stripe links
- *   - Example: Small, Medium, Large
- *
- * • Button text:
- *   - Defaults automatically to "Buy Now" (premade) or "Preorder" (preorder)
- *   - Override with `buttonText` if needed ("Buy Pillow", "Preorder Medium")
- *
- * • Sold Out flow:
- *   - Keep the product visible (unique piece with soldOut: true)
- *   - Customers see "Sold" badge and disabled button
- *   - Safe to also deactivate the Stripe Payment Link in dashboard
- *
- * -------------------------------
- * ✨ Example
- * -------------------------------
- *
- * {
- *   id: "crochet-pillow-rose-001",
- *   title: "Crochet Pillow — Rose #001",
- *   priceLabel: "$19.99",
- *   image: "/shop/crochet_pillow.jpg",
- *   description: "One-of-a-kind rose motif pillow.",
- *   shipNote: "Ready to ship • 1–2 days",
- *   badges: ["Unique"],
- *   kind: "premade",
- *   unique: true,
- *   soldOut: false,
- *   active: true,
- *   paymentLink: "https://buy.stripe.com/your_unique_link",
- *   buttonText: "Buy Now"
- * }
+ * Tip: keep this file as the single source of truth; you can house
+ * Stripe Payment Links here and your UI just reads them.
  */
 
+export type ProductKind = "premade" | "preorder";
 
+export type ProductVariant = {
+  /** Visible option label, e.g. "Small", "Lavender", or "12in" */
+  label: string;
+  /** Optional price label override for the variant (else fall back to product priceLabel) */
+  priceLabel?: string;
+  /** Stripe Payment Link for this specific variant */
+  paymentLink: string;
+  /** Optional variant id if you like to track */
+  id?: string;
 
-export type Variant = {
-  name: string;
-  paymentLink: string;     // Stripe Payment Link URL
-  buttonText?: string;     // Optional override (e.g., "Buy Adult", "Buy Large")
+  /** Optional CTA override for the variant button (compat with Shop.tsx) */
+  buttonText?: string;
+
+  /** Legacy compat: some code used v.name — map it to label or keep both */
+  name?: string; // <- keep if Shop.tsx still references v.name
 };
+
 
 export type Product = {
+  /** Unique id for internal use / keys */
   id: string;
+  /** Display title */
   title: string;
-  priceLabel: string;      // "$19.99" or "from $120"
-  image: string;           // serve from /public/shop/* for simplicity
-  description?: string;
-  leadTime?: string;       // e.g., "Made to order • 5–7 days" (for preorders)
-  shipNote?: string;       // e.g., "Ships in 1–2 days" (for premade)
-  badges?: string[];
+  /** Main price label shown on cards (e.g. "$24.99") */
+  priceLabel: string;
+  /** Hero image path (public/ or imported asset URL) */
+  image: string;
+  /** Small line under price describing turnaround */
+  leadTime: string;
+  /** Toggle visibility of this product in the grid */
   active: boolean;
 
-  /** NEW — differentiate product type */
-  kind: "premade" | "preorder";
+  /** PREMADE (ready to ship) or PREORDER (made to order) */
+  kind: ProductKind;
 
-  /** For premade uniques */
-  unique?: boolean;        // 1-of-1 piece
-  soldOut?: boolean;       // manually mark when sold (disables button)
+  /** Default Stripe Payment Link (used if no variants provided) */
+  paymentLink?: string;
 
-  /** Purchase controls */
-  paymentLink?: string;    // Use this OR variants
-  variants?: Variant[];
-  buttonText?: string;     // Optional override, e.g. "Buy Now", "Preorder This"
+  /** One-sentence marketing blurb */
+  description: string;
+
+  /** If true, shows a “1 of 1 / Unique” style badge in UI */
+  unique?: boolean;
+
+  /** If true, disables buy buttons and marks as Sold */
+  soldOut?: boolean;
+
+  /** Small shipping note shown on premade items (e.g. "Ships next business day") */
+  shipNote?: string;
+
+  /** Optional CTA override for the buy button (else Shop computes text automatically) */
+  buttonText?: string;
+
+  /** Small badges (“Limited”, “Pastel”, etc.) rendered as pills on the card */
+  badges?: string[];
+
+  /** Variants (size/color). If present, Shop will render buttons for each variant */
+  variants?: ProductVariant[];
 };
 
+/**
+ * Exported list the Shop imports.
+ * Safe to be empty: the page will render a friendly “no items yet” state.
+ */
+export const PRODUCTS: Product[] = [];
+
+/* ---------------------------------------------------------
+Example product templates (copy, paste, and customize):
+
 export const PRODUCTS: Product[] = [
-  // PREMADE (ready-to-ship)
+  // PREORDER example (made to order)
   {
-    id: "crochet-pillow-rose-001",
-    title: "Crochet Pillow — Rose #001",
-    priceLabel: "$19.99",
-    image: "/shop/crochet_pillow.jpg",
-    description: "One-of-a-kind rose motif pillow. Soft and squishy.",
-    shipNote: "Ready to ship • 1–2 days",
-    badges: ["Unique", "Giftable"],
-    kind: "premade",
-    unique: true,
-    soldOut: false,              // set true after it sells
-    active: true,
-    paymentLink: "https://buy.stripe.com/test_3cI5kC0UM0VRavw8zH2Ry00",
-    buttonText: "Buy Now",       // default for premade, but you can override
-  },
-
-  // PREORDER (made-to-order)
-  {
-    id: "crochet-plushie-bunny",
-    title: "Crochet Plushie — Bunny",
-    priceLabel: "$55",
-    image: "/shop/plushie.jpg",
-    description: "Cute, cuddly, and made just for you.",
+    id: "plushie-bunny",
+    title: "Bunny Plush (Pastel)",
+    priceLabel: "$29.99",
+    image: "/shop/bunny_plush.jpg",
     leadTime: "Made to order • 5–7 days",
-    badges: ["Made to order"],
-    kind: "preorder",
     active: true,
-    paymentLink: "https://buy.stripe.com/your_plushie_link",
-    buttonText: "Preorder",      // default for preorder, but you can override
-  },
-
-  // PREORDER with variants
-  {
-    id: "lap-throw",
-    title: "Lap Throw",
-    priceLabel: "from $120",
-    image: "/shop/throw.jpg",
-    description: "Cozy stitches for couch & cuddles.",
-    leadTime: "Made to order • 7–10 days",
-    badges: ["Popular"],
     kind: "preorder",
-    active: true,
+    paymentLink: "https://buy.stripe.com/test_abc123",
+    description: "Soft, cuddly, and perfect for gifting.",
+    badges: ["Pastel", "Hypoallergenic"],
+    // Optional variant set (overrides default paymentLink)
     variants: [
-      { name: "Small",  paymentLink: "https://buy.stripe.com/your_small_link",  buttonText: "Preorder Small" },
-      { name: "Medium", paymentLink: "https://buy.stripe.com/your_medium_link", buttonText: "Preorder Medium" },
-      { name: "Large",  paymentLink: "https://buy.stripe.com/your_large_link",  buttonText: "Preorder Large" },
+      { label: "Lavender", paymentLink: "https://buy.stripe.com/test_varLav" },
+      { label: "Mint",     paymentLink: "https://buy.stripe.com/test_varMint" },
     ],
   },
+
+  // PREMADE example (ready to ship, single unique piece)
+  {
+    id: "throw-rosegarden-1of1",
+    title: "Rose Garden Throw (1 of 1)",
+    priceLabel: "$140.00",
+    image: "/shop/rosegarden_throw.jpg",
+    leadTime: "Ready to ship • 1–2 days",
+    active: true,
+    kind: "premade",
+    paymentLink: "https://buy.stripe.com/test_xyz789",
+    description: "One-of-a-kind heirloom throw in soft pastels.",
+    unique: true,
+    shipNote: "Ships next business day from Springfield, MO",
+    badges: ["Unique", "Cozy"],
+  },
 ];
+--------------------------------------------------------- */
