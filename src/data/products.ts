@@ -119,7 +119,7 @@ export const PRODUCTS: Product[] = [
     image: "/shop/Rainbow_Pumpkin.jpg",
     description: "Hand-crocheted rainbow pumpkin adds a cozy, colorful touch to your fall décor. One-of-a-kind piece handmade with love.",
     shipNote: "Ready to ship • 1–2 days",
-    badges: ["Unique"],
+    badges: [],
     kind: "premade",
     unique: true,
     soldOut: false,
