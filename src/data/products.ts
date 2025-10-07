@@ -114,12 +114,12 @@ export const PRODUCTS: Product[] = [
   // PREMADE (ready-to-ship)
   {
     id: "rainbow-pumpkin-001",
-    title: "Rainbow Crochet Pumpkin — #001",
+    title: "Rainbow Crochet Pumpkin",
     priceLabel: "$14.99",
     image: "/shop/Rainbow_Pumpkin.jpg",
     description: "Hand-crocheted rainbow pumpkin adds a cozy, colorful touch to your fall décor. One-of-a-kind piece handmade with love.",
     shipNote: "Ready to ship • 1–2 days",
-    badges: ["Unique", "Seasonal", "Giftable"],
+    badges: ["Unique"],
     kind: "premade",
     unique: true,
     soldOut: false,
@@ -139,7 +139,7 @@ export const PRODUCTS: Product[] = [
     image: "/shop/Crochet_Trex.jpg",
     description: "Adorable hand-crocheted T-Rex plushie made to order! Choose from classic colors or a rainbow version. Each dino is about 4–5” tall and crafted with love.",
     leadTime: "Made to order • 5–7 days",
-    badges: ["Made to order", "Giftable"],
+    badges: ["Giftable"],
     kind: "preorder",
     active: true,
     paymentLink: "https://buy.stripe.com/test_3cI9AS0UM8oj7jkeY52Ry02",
