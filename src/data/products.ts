@@ -129,35 +129,21 @@ export const PRODUCTS: Product[] = [
   },
 
   // PREORDER (made-to-order)
-  {
-    id: "crochet-plushie-bunny",
-    title: "Crochet Plushie — Bunny",
-    priceLabel: "$55",
-    image: "/shop/plushie.jpg",
-    description: "Cute, cuddly, and made just for you.",
-    leadTime: "Made to order • 5–7 days",
-    badges: ["Made to order"],
-    kind: "preorder",
-    active: true,
-    paymentLink: "https://buy.stripe.com/your_plushie_link",
-    buttonText: "Preorder",      // default for preorder, but you can override
-  },
+  
 
   // PREORDER with variants
   {
-    id: "lap-throw",
-    title: "Lap Throw",
-    priceLabel: "from $120",
-    image: "/shop/throw.jpg",
-    description: "Cozy stitches for couch & cuddles.",
-    leadTime: "Made to order • 7–10 days",
-    badges: ["Popular"],
+    id: "custom-crochet-trex",
+    title: "Custom Crochet T-Rex Plushie",
+    priceLabel: "$29.99",
+    image: "/shop/Crochet_Trex.jpg",
+    description: "Adorable hand-crocheted T-Rex plushie made to order! Choose from classic colors or a rainbow version. Each dino is about 4–5” tall and crafted with love.",
+    leadTime: "Made to order • 5–7 days",
+    badges: ["Made to order", "Giftable"],
     kind: "preorder",
     active: true,
-    variants: [
-      { name: "Small",  paymentLink: "https://buy.stripe.com/your_small_link",  buttonText: "Preorder Small" },
-      { name: "Medium", paymentLink: "https://buy.stripe.com/your_medium_link", buttonText: "Preorder Medium" },
-      { name: "Large",  paymentLink: "https://buy.stripe.com/your_large_link",  buttonText: "Preorder Large" },
-    ],
+    paymentLink: "https://buy.stripe.com/test_3cI9AS0UM8oj7jkeY52Ry02",
+    buttonText: "Preorder Now",
   },
+  
 ];
