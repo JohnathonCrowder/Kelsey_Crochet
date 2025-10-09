@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Header from "../components/Header";
 import Footer from "../components/homepage/Footer";
 import { Blob } from "../components/Decor";
-import { PRODUCTS, Product } from "../data/products";
+import { PRODUCTS as STATIC_PRODUCTS, Product } from "../data/products";
 import {
   Sparkles,
   ShoppingBag,
@@ -12,6 +12,132 @@ import {
   BadgeCheck,
   MapPin,
 } from "lucide-react";
+
+/* ----------------------- CSV loader (client-only, no deps) ----------------------- */
+
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let cur: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (ch === '"') {
+      // Handle escaped quotes ("")
+      if (inQuotes && text[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === "," && !inQuotes) {
+      cur.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      // finish row (handle CRLF and LF)
+      if (cell.length || cur.length) {
+        cur.push(cell);
+        rows.push(cur);
+        cur = [];
+        cell = "";
+      }
+      // swallow paired \r\n
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      continue;
+    }
+
+    cell += ch;
+  }
+
+  // last cell/row
+  if (cell.length || cur.length) {
+    cur.push(cell);
+    rows.push(cur);
+  }
+
+  return rows.filter((r) => r.length && r.some((c) => c.trim() !== ""));
+}
+
+const toBool = (v?: string) => (v ?? "").trim().toLowerCase() === "true";
+const toBadges = (v?: string) =>
+  (v ?? "")
+    .split("|")
+    .map((s) => s.trim())
+    .filter(Boolean);
+const toVariants = (v?: string) => {
+  const s = (v ?? "").trim();
+  if (!s) return undefined;
+  try {
+    const parsed = JSON.parse(s);
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    console.warn("[products] variantsJson could not be parsed:", v);
+    return undefined;
+  }
+};
+
+async function loadProductsFromCsv(csvUrl: string): Promise<Product[]> {
+  const res = await fetch(`${csvUrl}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`CSV fetch failed: ${res.status}`);
+  const text = await res.text();
+  const table = parseCSV(text);
+  if (table.length < 2) return [];
+
+  const headers = table[0].map((h) => h.trim());
+  const idx = (name: string) => headers.indexOf(name);
+
+  const i = {
+    id: idx("id"),
+    title: idx("title"),
+    priceLabel: idx("priceLabel"),
+    image: idx("image"),
+    description: idx("description"),
+    leadTime: idx("leadTime"),
+    shipNote: idx("shipNote"),
+    badges: idx("badges"),
+    kind: idx("kind"),
+    unique: idx("unique"),
+    soldOut: idx("soldOut"),
+    active: idx("active"),
+    paymentLink: idx("paymentLink"),
+    variantsJson: idx("variantsJson"),
+    buttonText: idx("buttonText"),
+  };
+
+  const products: Product[] = table.slice(1).map((row) => {
+    const get = (k: keyof typeof i) =>
+      i[k] >= 0 && i[k] < row.length ? row[i[k]].trim() : "";
+
+    return {
+      id: get("id"),
+      title: get("title"),
+      priceLabel: get("priceLabel"),
+      image: get("image"),
+      description: get("description") || undefined,
+      leadTime: get("leadTime") || undefined,
+      shipNote: get("shipNote") || undefined,
+      badges: toBadges(get("badges")),
+      active: toBool(get("active")),
+      kind: (get("kind") as Product["kind"]) || "premade",
+      unique: toBool(get("unique")),
+      soldOut: toBool(get("soldOut")),
+      paymentLink: get("paymentLink") || undefined,
+      variants: toVariants(get("variantsJson")),
+      buttonText: get("buttonText") || undefined,
+    };
+  });
+
+  // Keep only minimally valid rows
+  return products.filter((p) => p.id && p.title && p.priceLabel && p.image);
+}
 
 /* ----------------------- Helpers ----------------------- */
 
@@ -39,6 +165,24 @@ function priceNumber(priceLabel: string) {
 /* ----------------------- Page ----------------------- */
 
 export default function Shop() {
+  // Live products with fallback to static
+  const [allProducts, setAllProducts] = useState<Product[]>(STATIC_PRODUCTS);
+
+  // Load from CSV if provided
+  useEffect(() => {
+    const url = import.meta.env.VITE_PRODUCTS_CSV_URL as string | undefined;
+    if (!url) return; // stay on static if not configured
+
+    (async () => {
+      try {
+        const live = await loadProductsFromCsv(url);
+        if (live?.length) setAllProducts(live);
+      } catch (e) {
+        console.warn("[products] CSV load failed, using fallback:", e);
+      }
+    })();
+  }, []);
+
   // Basic SEO
   useEffect(() => {
     document.title = "Shop • Kelsey’s Crochet";
@@ -59,8 +203,14 @@ export default function Shop() {
     );
   }, []);
 
-  const premade = useMemo(() => PRODUCTS.filter(byKind("premade")), []);
-  const preorder = useMemo(() => PRODUCTS.filter(byKind("preorder")), []);
+  const premade = useMemo(
+    () => allProducts.filter(byKind("premade")),
+    [allProducts]
+  );
+  const preorder = useMemo(
+    () => allProducts.filter(byKind("preorder")),
+    [allProducts]
+  );
 
   // Build Product JSON-LD array
   const productJsonLd = useMemo(() => {
@@ -82,7 +232,9 @@ export default function Shop() {
         price: priceNumber(p.priceLabel),
         availability: availabilityForSchema(p),
         url:
-          (p.paymentLink && !p.soldOut ? p.paymentLink : undefined) || undefined,
+          (!p.soldOut &&
+            (p.paymentLink || p.variants?.[0]?.paymentLink)) ||
+          undefined,
       },
     }));
     return JSON.stringify(items);
@@ -122,7 +274,7 @@ export default function Shop() {
             <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Slideshow */}
               <div className="lg:col-span-2">
-                <FeaturedCarousel />
+                <FeaturedCarousel allProducts={allProducts} />
               </div>
 
               {/* Notices / Benefits */}
@@ -148,16 +300,16 @@ export default function Shop() {
                 {/* Benefits */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div className="card p-4 flex items-center gap-2 bg-white/90 shadow-sm">
-                    <ShoppingBag className="h-4 w-4 text-petal-700" /> Apple &
-                    Google Pay supported
+                    <ShoppingBag className="h-4 w-4 text-petal-700" /> Apple Pay
+                    & Google Pay supported
                   </div>
                   <div className="card p-4 flex items-center gap-2 bg-white/90 shadow-sm">
                     <Truck className="h-4 w-4 text-petal-700" /> Clear shipping
                     times & updates
                   </div>
                   <div className="card p-4 flex items-center gap-2 bg-white/90 shadow-sm sm:col-span-2">
-                    <Shield className="h-4 w-4 text-petal-700" /> Secure checkout
-                    with Stripe
+                    <Shield className="h-4 w-4 text-petal-700" /> Secure
+                    checkout with Stripe
                   </div>
                 </div>
               </div>
@@ -246,6 +398,7 @@ function ProductCard({ p }: { p: Product }) {
           alt={p.title}
           className="w-full h-80 object-cover group-hover:scale-[1.02] transition-transform duration-500"
           loading="lazy"
+          decoding="async"
         />
 
         <div className="absolute top-3 left-3 flex flex-wrap gap-2">
@@ -342,8 +495,8 @@ function useFeaturedProducts(all: Product[]) {
   return sorted.slice(0, 6);
 }
 
-function FeaturedCarousel() {
-  const allActive = useMemo(() => PRODUCTS.filter((p) => p.active), []);
+function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
+  const allActive = useMemo(() => allProducts.filter((p) => p.active), [allProducts]);
   const featured = useFeaturedProducts(allActive);
 
   const slides = featured.map((p) => ({
@@ -356,7 +509,8 @@ function FeaturedCarousel() {
     href: !p.soldOut
       ? p.paymentLink ?? p.variants?.[0]?.paymentLink
       : undefined,
-    cta: p.kind === "premade" ? p.buttonText ?? "Buy Now" : p.buttonText ?? "Preorder",
+    cta:
+      p.kind === "premade" ? p.buttonText ?? "Buy Now" : p.buttonText ?? "Preorder",
     soldOut: !!p.soldOut,
   }));
 
@@ -406,7 +560,11 @@ function FeaturedCarousel() {
       className="relative card overflow-hidden group"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onFocus={onMouseEnter}
+      onBlur={onMouseLeave}
+      role="region"
       aria-roledescription="carousel"
+      aria-label="Featured crochet items"
     >
       {/* Image */}
       <div className="relative aspect-[16/9]">
@@ -446,7 +604,10 @@ function FeaturedCarousel() {
                   <span className="pill bg-white/90 text-stone-900">Sold</span>
                 )}
               </div>
-              <h3 className="mt-2 text-lg md:text-2xl font-semibold leading-tight line-clamp-1">
+              <h3
+                className="mt-2 text-lg md:text-2xl font-semibold leading-tight line-clamp-1"
+                aria-live="polite"
+              >
                 {s.title}
               </h3>
               <p className="text-sm md:text-base opacity-90">{s.price}</p>
@@ -505,7 +666,8 @@ function FeaturedCarousel() {
                 i === index ? "bg-white" : "bg-white/50 hover:bg-white/80"
               }`}
               onClick={() => go(i)}
-              aria-label={`Go to slide ${i + 1}`}
+              aria-label={`Go to slide ${i + 1} of ${slides.length}`}
+              aria-current={i === index ? "true" : undefined}
             />
           ))}
         </div>
