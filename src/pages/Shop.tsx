@@ -13,6 +13,11 @@ import {
   MapPin,
 } from "lucide-react";
 
+/* ----------------------- tiny helpers ----------------------- */
+const DEBUG =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("debug") === "1";
+
 /* ----------------------- CSV loader (client-only, no deps) ----------------------- */
 
 function parseCSV(text: string): string[][] {
@@ -25,7 +30,6 @@ function parseCSV(text: string): string[][] {
     const ch = text[i];
 
     if (ch === '"') {
-      // Handle escaped quotes ("")
       if (inQuotes && text[i + 1] === '"') {
         cell += '"';
         i++;
@@ -42,14 +46,12 @@ function parseCSV(text: string): string[][] {
     }
 
     if ((ch === "\n" || ch === "\r") && !inQuotes) {
-      // finish row (handle CRLF and LF)
       if (cell.length || cur.length) {
         cur.push(cell);
         rows.push(cur);
         cur = [];
         cell = "";
       }
-      // swallow paired \r\n
       if (ch === "\r" && text[i + 1] === "\n") i++;
       continue;
     }
@@ -57,7 +59,6 @@ function parseCSV(text: string): string[][] {
     cell += ch;
   }
 
-  // last cell/row
   if (cell.length || cur.length) {
     cur.push(cell);
     rows.push(cur);
@@ -66,12 +67,19 @@ function parseCSV(text: string): string[][] {
   return rows.filter((r) => r.length && r.some((c) => c.trim() !== ""));
 }
 
-const toBool = (v?: string) => (v ?? "").trim().toLowerCase() === "true";
+const toBool = (v?: string, def = false) => {
+  const s = (v ?? "").trim().toLowerCase();
+  if (!s) return def;
+  return ["true", "1", "yes", "y", "✓", "checked"].includes(s);
+};
+
+// accept "a|b|c" or "a,b,c"
 const toBadges = (v?: string) =>
   (v ?? "")
-    .split("|")
+    .split(/[|,]/)
     .map((s) => s.trim())
     .filter(Boolean);
+
 const toVariants = (v?: string) => {
   const s = (v ?? "").trim();
   if (!s) return undefined;
@@ -87,56 +95,126 @@ const toVariants = (v?: string) => {
 async function loadProductsFromCsv(csvUrl: string): Promise<Product[]> {
   const res = await fetch(`${csvUrl}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`CSV fetch failed: ${res.status}`);
-  const text = await res.text();
+  let text = await res.text();
+
+  // Strip UTF-8 BOM if present
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+
   const table = parseCSV(text);
   if (table.length < 2) return [];
 
-  const headers = table[0].map((h) => h.trim());
-  const idx = (name: string) => headers.indexOf(name);
+  const rawHeaders = table[0];
 
-  const i = {
-    id: idx("id"),
-    title: idx("title"),
-    priceLabel: idx("priceLabel"),
-    image: idx("image"),
-    description: idx("description"),
-    leadTime: idx("leadTime"),
-    shipNote: idx("shipNote"),
-    badges: idx("badges"),
-    kind: idx("kind"),
-    unique: idx("unique"),
-    soldOut: idx("soldOut"),
-    active: idx("active"),
-    paymentLink: idx("paymentLink"),
-    variantsJson: idx("variantsJson"),
-    buttonText: idx("buttonText"),
+  const normalize = (h: string) =>
+    h.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const headers = rawHeaders.map(normalize);
+
+  // Accept aliases
+  const H = (want: string, ...aliases: string[]) => {
+    const keys = [want, ...aliases].map(normalize);
+    for (const k of keys) {
+      const idx = headers.indexOf(k);
+      if (idx !== -1) return idx;
+    }
+    return -1;
   };
 
-  const products: Product[] = table.slice(1).map((row) => {
-    const get = (k: keyof typeof i) =>
-      i[k] >= 0 && i[k] < row.length ? row[i[k]].trim() : "";
+  // Build index map
+  let i = {
+    id: H("id"),
+    title: H("title", "name"),
+    priceLabel: H("pricelabel", "price", "priceusd"),
+    image: H("image", "imageurl", "img"),
+    description: H("description", "desc"),
+    leadTime: H("leadtime"),
+    shipNote: H("shipnote", "shippingnote"),
+    badges: H("badges", "tags"),
+    kind: H("kind", "type"),
+    unique: H("unique"),
+    soldOut: H("soldout"),
+    active: H("active", "enabled"),
+    paymentLink: H("paymentlink", "stripe", "buyurl"),
+    variantsJson: H("variantsjson", "variants"),
+    buttonText: H("buttontext", "cta"),
+  };
 
-    return {
-      id: get("id"),
-      title: get("title"),
-      priceLabel: get("priceLabel"),
-      image: get("image"),
-      description: get("description") || undefined,
-      leadTime: get("leadTime") || undefined,
-      shipNote: get("shipNote") || undefined,
-      badges: toBadges(get("badges")),
-      active: toBool(get("active")),
-      kind: (get("kind") as Product["kind"]) || "premade",
-      unique: toBool(get("unique")),
-      soldOut: toBool(get("soldOut")),
-      paymentLink: get("paymentLink") || undefined,
-      variants: toVariants(get("variantsJson")),
-      buttonText: get("buttonText") || undefined,
+  // If many headers failed to map, fall back to **positional** order
+  const missingCount = Object.values(i).filter((x) => x === -1).length;
+  if (missingCount >= 8 && rawHeaders.length >= 10) {
+    // Expecting the canonical order:
+    // id | title | priceLabel | image | description | leadTime | shipNote | badges | kind | unique | soldOut | active | paymentLink | variantsJson | buttonText
+    const pos = (n: number) => (n < rawHeaders.length ? n : -1);
+    i = {
+      id: pos(0),
+      title: pos(1),
+      priceLabel: pos(2),
+      image: pos(3),
+      description: pos(4),
+      leadTime: pos(5),
+      shipNote: pos(6),
+      badges: pos(7),
+      kind: pos(8),
+      unique: pos(9),
+      soldOut: pos(10),
+      active: pos(11),
+      paymentLink: pos(12),
+      variantsJson: pos(13),
+      buttonText: pos(14),
     };
+    if (DEBUG) {
+      console.warn("[products] Falling back to positional column mapping.");
+    }
+  }
+
+  if (DEBUG) {
+    console.log("[products] raw headers:", rawHeaders);
+    console.log("[products] normalized headers:", headers);
+    console.log("[products] header index map:", i);
+  }
+
+  const mapped: Product[] = table.slice(1).map((row) => {
+    const get = (idx: number) => (idx >= 0 && idx < row.length ? row[idx].trim() : "");
+
+    // normalize kind
+    const kindRaw = (get(i.kind) || "premade").toLowerCase();
+    const kind: Product["kind"] = kindRaw === "preorder" ? "preorder" : "premade";
+
+    // placeholder image if missing
+    const image = get(i.image) || "/shop/placeholder.jpg";
+
+    const p: Product = {
+      id: get(i.id),
+      title: get(i.title),
+      priceLabel: get(i.priceLabel),
+      image,
+      description: get(i.description) || undefined,
+      leadTime: get(i.leadTime) || undefined,
+      shipNote: get(i.shipNote) || undefined,
+      badges: toBadges(get(i.badges)),
+      active: toBool(get(i.active), true),
+      kind,
+      unique: toBool(get(i.unique), false),
+      soldOut: toBool(get(i.soldOut), false),
+      paymentLink: get(i.paymentLink) || undefined,
+      variants: toVariants(get(i.variantsJson)),
+      buttonText: get(i.buttonText) || undefined,
+    };
+
+    return p;
   });
 
-  // Keep only minimally valid rows
-  return products.filter((p) => p.id && p.title && p.priceLabel && p.image);
+  const valid = mapped.filter((p) => p.id && p.title && p.priceLabel);
+
+  if (DEBUG) {
+    console.log("[products] mapped:", mapped.length, "valid:", valid.length);
+    if (!valid.length && mapped.length) {
+      console.log("[products] sample row (mapped[0]):", mapped[0]);
+      console.log("[products] sample raw row (table[1]):", table[1]);
+    }
+  }
+
+  return valid.length ? valid : mapped;
 }
 
 /* ----------------------- Helpers ----------------------- */
@@ -165,18 +243,24 @@ function priceNumber(priceLabel: string) {
 /* ----------------------- Page ----------------------- */
 
 export default function Shop() {
-  // Live products with fallback to static
   const [allProducts, setAllProducts] = useState<Product[]>(STATIC_PRODUCTS);
 
-  // Load from CSV if provided
   useEffect(() => {
     const url = import.meta.env.VITE_PRODUCTS_CSV_URL as string | undefined;
-    if (!url) return; // stay on static if not configured
+    if (!url) return;
+    if (DEBUG) console.log("[products] env URL =", url);
 
     (async () => {
       try {
         const live = await loadProductsFromCsv(url);
-        if (live?.length) setAllProducts(live);
+        if (live && live.length) {
+          setAllProducts(live);
+          if (DEBUG) console.log("[products] using LIVE CSV products:", live.length);
+        } else {
+          console.warn(
+            "[products] CSV parsed but produced 0 items — keeping fallback (STATIC_PRODUCTS)."
+          );
+        }
       } catch (e) {
         console.warn("[products] CSV load failed, using fallback:", e);
       }
@@ -187,7 +271,7 @@ export default function Shop() {
   useEffect(() => {
     document.title = "Shop • Kelsey’s Crochet";
     const ensureMeta = (name: string, content: string) => {
-      const el = document.querySelector(`meta[name="${name}"]`);
+      const el = document.querySelector(`meta[name='${name}']`);
       if (!el) {
         const m = document.createElement("meta");
         m.setAttribute("name", name);
@@ -203,16 +287,9 @@ export default function Shop() {
     );
   }, []);
 
-  const premade = useMemo(
-    () => allProducts.filter(byKind("premade")),
-    [allProducts]
-  );
-  const preorder = useMemo(
-    () => allProducts.filter(byKind("preorder")),
-    [allProducts]
-  );
+  const premade = useMemo(() => allProducts.filter(byKind("premade")), [allProducts]);
+  const preorder = useMemo(() => allProducts.filter(byKind("preorder")), [allProducts]);
 
-  // Build Product JSON-LD array
   const productJsonLd = useMemo(() => {
     const all = [...premade, ...preorder];
     const items = all.map((p) => ({
@@ -232,8 +309,7 @@ export default function Shop() {
         price: priceNumber(p.priceLabel),
         availability: availabilityForSchema(p),
         url:
-          (!p.soldOut &&
-            (p.paymentLink || p.variants?.[0]?.paymentLink)) ||
+          (!p.soldOut && (p.paymentLink || p.variants?.[0]?.paymentLink)) ||
           undefined,
       },
     }));
@@ -243,16 +319,12 @@ export default function Shop() {
   return (
     <>
       <Header />
-
       <main className="relative overflow-hidden bg-gradient-to-b from-petal-50/60 to-white">
-        {/* Background accents */}
         <Blob className="-z-10 top-[6rem] left-[-12rem] opacity-30" />
         <Blob className="-z-10 bottom-[-10rem] right-[-16rem] opacity-20" />
 
         <div className="container-max py-16 md:py-20">
-          {/* Intro / Hero with Slideshow */}
           <header className="max-w-6xl mx-auto">
-            {/* Top tagline */}
             <div className="text-center">
               <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-white/90 shadow-sm text-petal-900 text-sm font-medium">
                 <Sparkles className="h-4 w-4 text-petal-700" />
@@ -270,16 +342,12 @@ export default function Shop() {
               </p>
             </div>
 
-            {/* Hero grid: slideshow + notices */}
             <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Slideshow */}
               <div className="lg:col-span-2">
                 <FeaturedCarousel allProducts={allProducts} />
               </div>
 
-              {/* Notices / Benefits */}
               <div className="space-y-4">
-                {/* Local Pickup */}
                 <div className="card bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 shadow-sm">
                   <div className="flex items-start gap-2">
                     <MapPin className="h-5 w-5 text-amber-700 mt-0.5" />
@@ -297,7 +365,6 @@ export default function Shop() {
                   </div>
                 </div>
 
-                {/* Benefits */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div className="card p-4 flex items-center gap-2 bg-white/90 shadow-sm">
                     <ShoppingBag className="h-4 w-4 text-petal-700" /> Apple Pay
@@ -316,7 +383,6 @@ export default function Shop() {
             </div>
           </header>
 
-          {/* Ready to Ship */}
           {premade.length > 0 && (
             <section className="mt-16">
               <div className="flex items-end justify-between">
@@ -338,7 +404,6 @@ export default function Shop() {
             </section>
           )}
 
-          {/* Made to Order */}
           {preorder.length > 0 && (
             <section className="mt-16">
               <div className="flex items-end justify-between">
@@ -360,7 +425,6 @@ export default function Shop() {
             </section>
           )}
 
-          {/* Custom CTA */}
           <p className="text-center text-sm text-stone-600 mt-10">
             Want something special?{" "}
             <a href="/#contact" className="underline">
@@ -370,7 +434,6 @@ export default function Shop() {
           </p>
         </div>
 
-        {/* SEO: Product JSON-LD */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: productJsonLd }}
@@ -391,7 +454,6 @@ function ProductCard({ p }: { p: Product }) {
 
   return (
     <article className="card overflow-hidden group">
-      {/* Image + badges */}
       <figure className="relative">
         <img
           src={p.image}
@@ -415,7 +477,6 @@ function ProductCard({ p }: { p: Product }) {
         </div>
       </figure>
 
-      {/* Content */}
       <div className="p-5">
         <div className="flex items-start justify-between gap-3">
           <h3 className="font-semibold text-stone-900">{p.title}</h3>
@@ -439,7 +500,6 @@ function ProductCard({ p }: { p: Product }) {
           <p className="text-sm text-stone-600 mt-3">{p.description}</p>
         )}
 
-        {/* Purchase controls */}
         <div className="mt-4">
           {p.variants?.length ? (
             <div className="grid grid-cols-2 gap-2">
@@ -506,11 +566,8 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
       p.kind === "premade" ? "Ready to Ship" : p.leadTime ?? "Made to Order",
     price: p.priceLabel,
     image: p.image,
-    href: !p.soldOut
-      ? p.paymentLink ?? p.variants?.[0]?.paymentLink
-      : undefined,
-    cta:
-      p.kind === "premade" ? p.buttonText ?? "Buy Now" : p.buttonText ?? "Preorder",
+    href: !p.soldOut ? p.paymentLink ?? p.variants?.[0]?.paymentLink : undefined,
+    cta: p.kind === "premade" ? p.buttonText ?? "Buy Now" : p.buttonText ?? "Preorder",
     soldOut: !!p.soldOut,
   }));
 
@@ -566,62 +623,32 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
       aria-roledescription="carousel"
       aria-label="Featured crochet items"
     >
-      {/* Image */}
       <div className="relative aspect-[16/9]">
         {s.href && !s.soldOut ? (
-          <a
-            href={s.href}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`${s.cta} — ${s.title}`}
-          >
-            <img
-              src={s.image}
-              alt={s.title}
-              className="w-full h-full object-cover"
-              loading="eager"
-            />
+          <a href={s.href} target="_blank" rel="noreferrer" aria-label={`${s.cta} — ${s.title}`}>
+            <img src={s.image} alt={s.title} className="w-full h-full object-cover" loading="eager" />
           </a>
         ) : (
-          <img
-            src={s.image}
-            alt={s.title}
-            className="w-full h-full object-cover"
-            loading="eager"
-          />
+          <img src={s.image} alt={s.title} className="w-full h-full object-cover" loading="eager" />
         )}
 
-        {/* Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
         <div className="absolute left-4 right-4 bottom-4 text-white">
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="pill bg-white/90 text-stone-900">
-                  {s.subtitle}
-                </span>
-                {s.soldOut && (
-                  <span className="pill bg-white/90 text-stone-900">Sold</span>
-                )}
+                <span className="pill bg-white/90 text-stone-900">{s.subtitle}</span>
+                {s.soldOut && <span className="pill bg-white/90 text-stone-900">Sold</span>}
               </div>
-              <h3
-                className="mt-2 text-lg md:text-2xl font-semibold leading-tight line-clamp-1"
-                aria-live="polite"
-              >
+              <h3 className="mt-2 text-lg md:text-2xl font-semibold leading-tight line-clamp-1" aria-live="polite">
                 {s.title}
               </h3>
               <p className="text-sm md:text-base opacity-90">{s.price}</p>
             </div>
 
-            {/* CTA */}
             <div className="ml-auto">
               {s.href && !s.soldOut ? (
-                <a
-                  href={s.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn btn-primary inline-flex items-center"
-                >
+                <a href={s.href} target="_blank" rel="noreferrer" className="btn btn-primary inline-flex items-center">
                   {s.cta} <ExternalLink className="h-4 w-4 ml-1" />
                 </a>
               ) : (
@@ -633,7 +660,6 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
           </div>
         </div>
 
-        {/* Prev / Next */}
         {slides.length > 1 && (
           <>
             <button
@@ -656,15 +682,12 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
         )}
       </div>
 
-      {/* Dots */}
       {slides.length > 1 && (
         <div className="absolute left-0 right-0 bottom-2 flex items-center justify-center gap-2">
           {slides.map((_, i) => (
             <button
               key={i}
-              className={`h-2.5 w-2.5 rounded-full transition ${
-                i === index ? "bg-white" : "bg-white/50 hover:bg-white/80"
-              }`}
+              className={`h-2.5 w-2.5 rounded-full transition ${i === index ? "bg-white" : "bg-white/50 hover:bg-white/80"}`}
               onClick={() => go(i)}
               aria-label={`Go to slide ${i + 1} of ${slides.length}`}
               aria-current={i === index ? "true" : undefined}
