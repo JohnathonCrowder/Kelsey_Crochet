@@ -1,4 +1,6 @@
+// src/pages/Shop.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import Header from "../components/Header";
 import Footer from "../components/homepage/Footer";
 import { Blob } from "../components/Decor";
@@ -12,232 +14,22 @@ import {
   BadgeCheck,
   MapPin,
 } from "lucide-react";
+import {
+  loadProductsFromCsv,
+  availabilityForSchema,
+  priceNumber,
+  defaultCta,
+} from "../lib/products";
 
 /* ----------------------- tiny helpers ----------------------- */
 const DEBUG =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("debug") === "1";
 
-/* ----------------------- CSV loader (client-only, no deps) ----------------------- */
-
-function parseCSV(text: string): string[][] {
-  const rows: string[][] = [];
-  let cur: string[] = [];
-  let cell = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-
-    if (ch === '"') {
-      if (inQuotes && text[i + 1] === '"') {
-        cell += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-
-    if (ch === "," && !inQuotes) {
-      cur.push(cell);
-      cell = "";
-      continue;
-    }
-
-    if ((ch === "\n" || ch === "\r") && !inQuotes) {
-      if (cell.length || cur.length) {
-        cur.push(cell);
-        rows.push(cur);
-        cur = [];
-        cell = "";
-      }
-      if (ch === "\r" && text[i + 1] === "\n") i++;
-      continue;
-    }
-
-    cell += ch;
-  }
-
-  if (cell.length || cur.length) {
-    cur.push(cell);
-    rows.push(cur);
-  }
-
-  return rows.filter((r) => r.length && r.some((c) => c.trim() !== ""));
-}
-
-const toBool = (v?: string, def = false) => {
-  const s = (v ?? "").trim().toLowerCase();
-  if (!s) return def;
-  return ["true", "1", "yes", "y", "✓", "checked"].includes(s);
-};
-
-// accept "a|b|c" or "a,b,c"
-const toBadges = (v?: string) =>
-  (v ?? "")
-    .split(/[|,]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-const toVariants = (v?: string) => {
-  const s = (v ?? "").trim();
-  if (!s) return undefined;
-  try {
-    const parsed = JSON.parse(s);
-    return Array.isArray(parsed) ? parsed : undefined;
-  } catch {
-    console.warn("[products] variantsJson could not be parsed:", v);
-    return undefined;
-  }
-};
-
-async function loadProductsFromCsv(csvUrl: string): Promise<Product[]> {
-  const res = await fetch(`${csvUrl}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(`CSV fetch failed: ${res.status}`);
-  let text = await res.text();
-
-  // Strip UTF-8 BOM if present
-  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-
-  const table = parseCSV(text);
-  if (table.length < 2) return [];
-
-  const rawHeaders = table[0];
-
-  const normalize = (h: string) =>
-    h.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-
-  const headers = rawHeaders.map(normalize);
-
-  // Accept aliases
-  const H = (want: string, ...aliases: string[]) => {
-    const keys = [want, ...aliases].map(normalize);
-    for (const k of keys) {
-      const idx = headers.indexOf(k);
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  };
-
-  // Build index map
-  let i = {
-    id: H("id"),
-    title: H("title", "name"),
-    priceLabel: H("pricelabel", "price", "priceusd"),
-    image: H("image", "imageurl", "img"),
-    description: H("description", "desc"),
-    leadTime: H("leadtime"),
-    shipNote: H("shipnote", "shippingnote"),
-    badges: H("badges", "tags"),
-    kind: H("kind", "type"),
-    unique: H("unique"),
-    soldOut: H("soldout"),
-    active: H("active", "enabled"),
-    paymentLink: H("paymentlink", "stripe", "buyurl"),
-    variantsJson: H("variantsjson", "variants"),
-    buttonText: H("buttontext", "cta"),
-  };
-
-  // If many headers failed to map, fall back to **positional** order
-  const missingCount = Object.values(i).filter((x) => x === -1).length;
-  if (missingCount >= 8 && rawHeaders.length >= 10) {
-    // Expecting the canonical order:
-    // id | title | priceLabel | image | description | leadTime | shipNote | badges | kind | unique | soldOut | active | paymentLink | variantsJson | buttonText
-    const pos = (n: number) => (n < rawHeaders.length ? n : -1);
-    i = {
-      id: pos(0),
-      title: pos(1),
-      priceLabel: pos(2),
-      image: pos(3),
-      description: pos(4),
-      leadTime: pos(5),
-      shipNote: pos(6),
-      badges: pos(7),
-      kind: pos(8),
-      unique: pos(9),
-      soldOut: pos(10),
-      active: pos(11),
-      paymentLink: pos(12),
-      variantsJson: pos(13),
-      buttonText: pos(14),
-    };
-    if (DEBUG) {
-      console.warn("[products] Falling back to positional column mapping.");
-    }
-  }
-
-  if (DEBUG) {
-    console.log("[products] raw headers:", rawHeaders);
-    console.log("[products] normalized headers:", headers);
-    console.log("[products] header index map:", i);
-  }
-
-  const mapped: Product[] = table.slice(1).map((row) => {
-    const get = (idx: number) => (idx >= 0 && idx < row.length ? row[idx].trim() : "");
-
-    // normalize kind
-    const kindRaw = (get(i.kind) || "premade").toLowerCase();
-    const kind: Product["kind"] = kindRaw === "preorder" ? "preorder" : "premade";
-
-    // placeholder image if missing
-    const image = get(i.image) || "/shop/placeholder.jpg";
-
-    const p: Product = {
-      id: get(i.id),
-      title: get(i.title),
-      priceLabel: get(i.priceLabel),
-      image,
-      description: get(i.description) || undefined,
-      leadTime: get(i.leadTime) || undefined,
-      shipNote: get(i.shipNote) || undefined,
-      badges: toBadges(get(i.badges)),
-      active: toBool(get(i.active), true),
-      kind,
-      unique: toBool(get(i.unique), false),
-      soldOut: toBool(get(i.soldOut), false),
-      paymentLink: get(i.paymentLink) || undefined,
-      variants: toVariants(get(i.variantsJson)),
-      buttonText: get(i.buttonText) || undefined,
-    };
-
-    return p;
-  });
-
-  const valid = mapped.filter((p) => p.id && p.title && p.priceLabel);
-
-  if (DEBUG) {
-    console.log("[products] mapped:", mapped.length, "valid:", valid.length);
-    if (!valid.length && mapped.length) {
-      console.log("[products] sample row (mapped[0]):", mapped[0]);
-      console.log("[products] sample raw row (table[1]):", table[1]);
-    }
-  }
-
-  return valid.length ? valid : mapped;
-}
-
-/* ----------------------- Helpers ----------------------- */
+/* ----------------------- filters ----------------------- */
 
 function byKind(kind: Product["kind"]) {
   return (p: Product) => p.active && p.kind === kind;
-}
-
-function defaultCta(p: Product) {
-  if (p.buttonText) return p.buttonText;
-  return p.kind === "premade" ? "Buy Now" : "Preorder";
-}
-
-function availabilityForSchema(p: Product) {
-  if (p.soldOut) return "https://schema.org/SoldOut";
-  return p.kind === "premade"
-    ? "https://schema.org/InStock"
-    : "https://schema.org/PreOrder";
-}
-
-function priceNumber(priceLabel: string) {
-  const n = priceLabel.replace(/[^0-9.]/g, "");
-  return n ? Number(n) : undefined;
 }
 
 /* ----------------------- Page ----------------------- */
@@ -451,17 +243,20 @@ function ProductCard({ p }: { p: Product }) {
   const isPremade = p.kind === "premade";
   const disabled = !!p.soldOut;
   const ctaText = defaultCta(p);
+  const detailHref = `/product/${encodeURIComponent(p.slug || p.id)}`;
 
   return (
     <article className="card overflow-hidden group">
       <figure className="relative">
-        <img
-          src={p.image}
-          alt={p.title}
-          className="w-full h-80 object-cover group-hover:scale-[1.02] transition-transform duration-500"
-          loading="lazy"
-          decoding="async"
-        />
+        <Link to={detailHref} aria-label={`View ${p.title}`}>
+          <img
+            src={p.image}
+            alt={p.title}
+            className="w-full h-80 object-cover group-hover:scale-[1.02] transition-transform duration-500"
+            loading="lazy"
+            decoding="async"
+          />
+        </Link>
 
         <div className="absolute top-3 left-3 flex flex-wrap gap-2">
           <span className="pill bg-white/90">
@@ -479,7 +274,11 @@ function ProductCard({ p }: { p: Product }) {
 
       <div className="p-5">
         <div className="flex items-start justify-between gap-3">
-          <h3 className="font-semibold text-stone-900">{p.title}</h3>
+          <h3 className="font-semibold text-stone-900">
+            <Link to={detailHref} className="hover:underline">
+              {p.title}
+            </Link>
+          </h3>
           {!p.soldOut && (
             <span className="inline-flex items-center gap-1 text-xs text-stone-500">
               <BadgeCheck className="h-4 w-4" /> Secure
@@ -497,31 +296,34 @@ function ProductCard({ p }: { p: Product }) {
         )}
 
         {p.description && (
-          <p className="text-sm text-stone-600 mt-3">{p.description}</p>
+          <p className="text-sm text-stone-600 mt-3 line-clamp-3">{p.description}</p>
         )}
 
-        <div className="mt-4">
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          {/* View details */}
+          <Link
+            to={detailHref}
+            className="btn w-full"
+            aria-label={`View details — ${p.title}`}
+          >
+            Details
+          </Link>
+
+          {/* Primary Stripe CTA (or disabled if sold) */}
           {p.variants?.length ? (
-            <div className="grid grid-cols-2 gap-2">
-              {p.variants.map((v) => {
-                const label = v.buttonText || v.name;
-                return (
-                  <a
-                    key={v.name}
-                    href={disabled ? undefined : v.paymentLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`btn btn-primary text-sm flex items-center justify-center ${
-                      disabled ? "pointer-events-none opacity-60" : ""
-                    }`}
-                    aria-disabled={disabled}
-                    aria-label={`${label} — ${p.title}`}
-                  >
-                    {label} <ExternalLink className="h-4 w-4 ml-1" />
-                  </a>
-                );
-              })}
-            </div>
+            <a
+              href={disabled ? undefined : p.variants[0]?.paymentLink}
+              target="_blank"
+              rel="noreferrer"
+              className={`btn btn-primary w-full ${
+                disabled ? "pointer-events-none opacity-60" : ""
+              }`}
+              aria-disabled={disabled}
+              aria-label={`${p.variants[0]?.buttonText || p.variants[0]?.name} — ${p.title}`}
+            >
+              {p.variants[0]?.buttonText || p.variants[0]?.name}{" "}
+              <ExternalLink className="h-4 w-4 ml-1" />
+            </a>
           ) : p.paymentLink ? (
             <a
               href={disabled ? undefined : p.paymentLink}
@@ -536,7 +338,9 @@ function ProductCard({ p }: { p: Product }) {
               {ctaText} <ExternalLink className="h-4 w-4 ml-1" />
             </a>
           ) : (
-            <div className="text-sm text-stone-500">Coming soon</div>
+            <div className="text-sm text-stone-500 flex items-center justify-center">
+              Soon
+            </div>
           )}
         </div>
       </div>

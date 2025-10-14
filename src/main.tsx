@@ -9,6 +9,7 @@ import GalleryPage from "./pages/Gallery"; // gallery page
 import Shop from "./pages/Shop"; // shop page
 import ShippingReturns from "./pages/ShippingReturns"; // shipping & returns page
 import Terms from "./pages/Terms"; // terms & conditions page
+import ProductPage from "./pages/Product";
 
 import "./index.css";
 
@@ -27,6 +28,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/shop" element={<Shop />} />
         <Route path="/shipping-returns" element={<ShippingReturns />} />
         <Route path="/terms" element={<Terms />} />
+        <Route path="/product/:id" element={<ProductPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>
