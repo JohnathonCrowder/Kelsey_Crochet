@@ -1,5 +1,5 @@
 // src/pages/Shop.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Header from "../components/Header";
 import Footer from "../components/homepage/Footer";
@@ -26,27 +26,145 @@ const DEBUG =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("debug") === "1";
 
-/* ----------------------- filters ----------------------- */
+/* ----------------------- perf: CSV session cache ----------------------- */
+const CSV_CACHE_KEY = "kc_products_csv_cache_v1";
+const CSV_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+type Cached = { ts: number; products: Product[] };
+
+/* ----------------------- filters ----------------------- */
 function byKind(kind: Product["kind"]) {
   return (p: Product) => p.active && p.kind === kind;
 }
 
-/* ----------------------- Page ----------------------- */
+/* ----------------------- Lazy image (IO) ----------------------- */
+function LazyImg(props: {
+  src?: string;
+  alt: string;
+  className?: string;
+  sizes?: string;
+  fetchpriority?: "high" | "low" | "auto"; // lowercase for DOM attribute
+  eager?: boolean;
+  width?: number;
+  height?: number;
+}) {
+  const {
+    src,
+    alt,
+    className,
+    sizes,
+    fetchpriority = "auto",
+    eager = false,
+    width,
+    height,
+  } = props;
+  const ref = useRef<HTMLImageElement | null>(null);
+  const [inView, setInView] = useState(eager);
+  const [loaded, setLoaded] = useState(false);
 
+  useEffect(() => {
+    if (eager || inView) return;
+    const el = ref.current;
+    if (!el || !("IntersectionObserver" in window)) {
+      setInView(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            setInView(true);
+            io.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [eager, inView]);
+
+  return (
+    <img
+      ref={ref}
+      src={inView ? src : undefined}
+      alt={alt}
+      width={width}
+      height={height}
+      className={
+        "transition-[filter,opacity] duration-300 " +
+        (loaded ? "opacity-100 filter-none " : "opacity-80 blur-[2px] ") +
+        (className ?? "")
+      }
+      loading={eager ? "eager" : "lazy"}
+      decoding="async"
+      {...(fetchpriority ? ({ fetchpriority } as any) : {})}
+      sizes={sizes}
+      onLoad={() => setLoaded(true)}
+      // helps avoid tiny CLS if image is late
+      style={{ containIntrinsicSize: width && height ? `${height}px ${width}px` as any : undefined }}
+    />
+  );
+}
+
+/* ----------------------- preloads ----------------------- */
+function PreloadImage({ href }: { href?: string }) {
+  useEffect(() => {
+    if (!href) return;
+    const link = document.createElement("link");
+    link.rel = "preload";
+    link.as = "image";
+    link.href = href;
+    document.head.appendChild(link);
+    return () => {
+      if (link.parentNode) document.head.removeChild(link);
+    };
+  }, [href]);
+  return null;
+}
+
+/* ----------------------- Page ----------------------- */
 export default function Shop() {
   const [allProducts, setAllProducts] = useState<Product[]>(STATIC_PRODUCTS);
+  const [loading, setLoading] = useState(false);
+
+  // Preconnect to Stripe (speeds up subsequent checkout)
+  useEffect(() => {
+    const link = document.createElement("link");
+    link.rel = "preconnect";
+    link.href = "https://buy.stripe.com";
+    document.head.appendChild(link);
+    return () => {
+      if (link.parentNode) document.head.removeChild(link);
+    };
+  }, []);
 
   useEffect(() => {
     const url = import.meta.env.VITE_PRODUCTS_CSV_URL as string | undefined;
     if (!url) return;
-    if (DEBUG) console.log("[products] env URL =", url);
 
+    // session cache fast-path
+    const cachedRaw = sessionStorage.getItem(CSV_CACHE_KEY);
+    if (cachedRaw) {
+      try {
+        const parsed: Cached = JSON.parse(cachedRaw);
+        if (Date.now() - parsed.ts < CSV_TTL_MS && parsed.products?.length) {
+          setAllProducts(parsed.products);
+        }
+      } catch {}
+    }
+
+    setLoading(true);
     (async () => {
       try {
         const live = await loadProductsFromCsv(url);
         if (live && live.length) {
           setAllProducts(live);
+          try {
+            const payload: Cached = { ts: Date.now(), products: live };
+            sessionStorage.setItem(CSV_CACHE_KEY, JSON.stringify(payload));
+          } catch {}
           if (DEBUG) console.log("[products] using LIVE CSV products:", live.length);
         } else {
           console.warn(
@@ -55,6 +173,8 @@ export default function Shop() {
         }
       } catch (e) {
         console.warn("[products] CSV load failed, using fallback:", e);
+      } finally {
+        setLoading(false);
       }
     })();
   }, []);
@@ -175,46 +295,67 @@ export default function Shop() {
             </div>
           </header>
 
-          {premade.length > 0 && (
-            <section className="mt-16">
-              <div className="flex items-end justify-between">
-                <div>
-                  <h2 className="font-display text-2xl md:text-3xl tracking-tight text-petal-900">
-                    Ready to Ship
-                  </h2>
-                  <p className="text-stone-600 text-sm mt-1">
-                    Unique and small-batch items—ships in 1–2 days.
-                  </p>
-                </div>
-              </div>
-
+          {/* Skeletons while loading from CSV (avoids flicker) */}
+          {loading ? (
+            <section className="mt-16 animate-pulse">
+              <div className="h-7 w-48 bg-stone-200/80 rounded" />
               <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {premade.map((p) => (
-                  <ProductCard key={p.id} p={p} />
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="card overflow-hidden">
+                    <div className="h-80 bg-stone-200/70" />
+                    <div className="p-5">
+                      <div className="h-5 w-2/3 bg-stone-200/70 rounded" />
+                      <div className="mt-2 h-4 w-24 bg-stone-200/70 rounded" />
+                      <div className="mt-4 h-9 w-full bg-stone-200/70 rounded" />
+                    </div>
+                  </div>
                 ))}
               </div>
             </section>
-          )}
+          ) : (
+            <>
+              {premade.length > 0 && (
+                <section className="mt-16">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <h2 className="font-display text-2xl md:text-3xl tracking-tight text-petal-900">
+                        Ready to Ship
+                      </h2>
+                      <p className="text-stone-600 text-sm mt-1">
+                        Unique and small-batch items—ships in 1–2 days.
+                      </p>
+                    </div>
+                  </div>
 
-          {preorder.length > 0 && (
-            <section className="mt-16">
-              <div className="flex items-end justify-between">
-                <div>
-                  <h2 className="font-display text-2xl md:text-3xl tracking-tight text-petal-900">
-                    Made to Order
-                  </h2>
-                  <p className="text-stone-600 text-sm mt-1">
-                    Pick a design—Kelsey crochets it to your specs.
-                  </p>
-                </div>
-              </div>
+                  <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {premade.map((p) => (
+                      <MemoCard key={p.id} p={p} />
+                    ))}
+                  </div>
+                </section>
+              )}
 
-              <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {preorder.map((p) => (
-                  <ProductCard key={p.id} p={p} />
-                ))}
-              </div>
-            </section>
+              {preorder.length > 0 && (
+                <section className="mt-16">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <h2 className="font-display text-2xl md:text-3xl tracking-tight text-petal-900">
+                        Made to Order
+                      </h2>
+                      <p className="text-stone-600 text-sm mt-1">
+                        Pick a design—Kelsey crochets it to your specs.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {preorder.map((p) => (
+                      <MemoCard key={p.id} p={p} />
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
           )}
 
           <p className="text-center text-sm text-stone-600 mt-10">
@@ -238,7 +379,6 @@ export default function Shop() {
 }
 
 /* ----------------------- Card ----------------------- */
-
 function ProductCard({ p }: { p: Product }) {
   const isPremade = p.kind === "premade";
   const disabled = !!p.soldOut;
@@ -249,12 +389,13 @@ function ProductCard({ p }: { p: Product }) {
     <article className="card overflow-hidden group">
       <figure className="relative">
         <Link to={detailHref} aria-label={`View ${p.title}`}>
-          <img
+          <LazyImg
             src={p.image}
             alt={p.title}
             className="w-full h-80 object-cover group-hover:scale-[1.02] transition-transform duration-500"
-            loading="lazy"
-            decoding="async"
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            width={960}
+            height={640}
           />
         </Link>
 
@@ -292,7 +433,7 @@ function ProductCard({ p }: { p: Product }) {
           <p className="text-xs text-stone-500 mt-1">{p.shipNote}</p>
         )}
         {!isPremade && p.leadTime && (
-          <p className="text-xs text-stone-500 mt-1">{p.leadTime}</p>
+            <p className="text-xs text-stone-500 mt-1">{p.leadTime}</p>
         )}
 
         {p.description && (
@@ -348,8 +489,9 @@ function ProductCard({ p }: { p: Product }) {
   );
 }
 
-/* ----------------------- Featured Carousel ----------------------- */
+const MemoCard = memo(ProductCard);
 
+/* ----------------------- Featured Carousel ----------------------- */
 function useFeaturedProducts(all: Product[]) {
   const sorted = [...all].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "premade" ? -1 : 1;
@@ -377,9 +519,17 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
 
   const [index, setIndex] = useState(0);
   const timer = useRef<number | null>(null);
+  const prefersReducedMotion = useRef<boolean>(false);
 
   useEffect(() => {
-    if (slides.length <= 1) return;
+    prefersReducedMotion.current = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)"
+    ).matches ?? false;
+  }, []);
+
+  // Auto-rotate unless user prefers reduced motion
+  useEffect(() => {
+    if (slides.length <= 1 || prefersReducedMotion.current) return;
     timer.current = window.setInterval(() => {
       setIndex((i) => (i + 1) % slides.length);
     }, 4000);
@@ -395,7 +545,7 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
     }
   };
   const onMouseLeave = () => {
-    if (slides.length <= 1) return;
+    if (slides.length <= 1 || prefersReducedMotion.current) return;
     if (!timer.current) {
       timer.current = window.setInterval(() => {
         setIndex((i) => (i + 1) % slides.length);
@@ -416,6 +566,8 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
   const go = (i: number) => setIndex((i + slides.length) % slides.length);
   const s = slides[index];
 
+  // Preload current + prefetch next for buttery transitions
+  const next = slides[(index + 1) % slides.length]?.image;
   return (
     <div
       className="relative card overflow-hidden group"
@@ -427,13 +579,39 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
       aria-roledescription="carousel"
       aria-label="Featured crochet items"
     >
+      <PreloadImage href={s.image} />
+      {next && <link rel="prefetch" as="image" href={next} />}
+
       <div className="relative aspect-[16/9]">
         {s.href && !s.soldOut ? (
-          <a href={s.href} target="_blank" rel="noreferrer" aria-label={`${s.cta} — ${s.title}`}>
-            <img src={s.image} alt={s.title} className="w-full h-full object-cover" loading="eager" />
+          <a
+            href={s.href}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`${s.cta} — ${s.title}`}
+          >
+            <LazyImg
+              src={s.image}
+              alt={s.title}
+              className="w-full h-full object-cover"
+              eager
+              fetchpriority="high"
+              sizes="(max-width: 1024px) 100vw, 66vw"
+              width={1280}
+              height={720}
+            />
           </a>
         ) : (
-          <img src={s.image} alt={s.title} className="w-full h-full object-cover" loading="eager" />
+          <LazyImg
+            src={s.image}
+            alt={s.title}
+            className="w-full h-full object-cover"
+            eager
+            fetchpriority="high"
+            sizes="(max-width: 1024px) 100vw, 66vw"
+            width={1280}
+            height={720}
+          />
         )}
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
@@ -444,7 +622,10 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
                 <span className="pill bg-white/90 text-stone-900">{s.subtitle}</span>
                 {s.soldOut && <span className="pill bg-white/90 text-stone-900">Sold</span>}
               </div>
-              <h3 className="mt-2 text-lg md:text-2xl font-semibold leading-tight line-clamp-1" aria-live="polite">
+              <h3
+                className="mt-2 text-lg md:text-2xl font-semibold leading-tight line-clamp-1"
+                aria-live="polite"
+              >
                 {s.title}
               </h3>
               <p className="text-sm md:text-base opacity-90">{s.price}</p>
@@ -452,7 +633,12 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
 
             <div className="ml-auto">
               {s.href && !s.soldOut ? (
-                <a href={s.href} target="_blank" rel="noreferrer" className="btn btn-primary inline-flex items-center">
+                <a
+                  href={s.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-primary inline-flex items-center"
+                >
                   {s.cta} <ExternalLink className="h-4 w-4 ml-1" />
                 </a>
               ) : (
@@ -491,7 +677,9 @@ function FeaturedCarousel({ allProducts }: { allProducts: Product[] }) {
           {slides.map((_, i) => (
             <button
               key={i}
-              className={`h-2.5 w-2.5 rounded-full transition ${i === index ? "bg-white" : "bg-white/50 hover:bg-white/80"}`}
+              className={`h-2.5 w-2.5 rounded-full transition ${
+                i === index ? "bg-white" : "bg-white/50 hover:bg-white/80"
+              }`}
               onClick={() => go(i)}
               aria-label={`Go to slide ${i + 1} of ${slides.length}`}
               aria-current={i === index ? "true" : undefined}
